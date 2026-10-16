@@ -38,6 +38,14 @@ No caso do postgres, fiz teste só com uma amostra em Linux (Ubuntu 20.4).
 Se a execução deste script demorar muito, uma opção é usar o projeto em https://github.com/rictom/cnpj-sqlite para gerar o arquivo em sqlite e usar uma ferramenta como o pgloader ou o DBeaver para converter depois em postgres.
 Este colega usou o pgloader com um bom desempenho: https://github.com/rictom/cnpj-mysql/issues/5
 
+## Versão PostgreSQL otimizada (somente CNPJs ativos)
+
+`dados_cnpj_postgres.py` lê os zips em streaming, grava apenas estabelecimentos ativos (e suas empresas, sócios e Simples), cria schema tipado e a tabela `lead` (desnormalizada, com `perfil_texto` para embeddings e `lead_embedding` para pgvector). A troca do schema é atômica.<br>
+Conexão por variáveis de ambiente (nunca coloque senha no código):<br>
+<b>export PGHOST=... PGPORT=5432 PGDATABASE=... PGUSER=... PGPASSWORD=... PGSSLMODE=require</b><br>
+<b>python dados_cnpj_postgres.py --workers 4</b><br>
+No Azure, libere as extensões <code>pg_trgm</code> e <code>vector</code> no parâmetro <code>azure.extensions</code>.<br>
+
 ## Outras referências:
 
 Para trabalhar com os dados de cnpj no formato SQLITE, use o meu projeto (https://github.com/rictom/cnpj-sqlite).<br>

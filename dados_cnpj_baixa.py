@@ -7,32 +7,25 @@ https://www.gov.br/receitafederal/pt-br/assuntos/orientacao-tributaria/cadastros
 Houve alteração de layout da página de download em fev/2026.
 Talvez seja necessário ajustar o valor do parâmetro share_token na função consulta_base_webdap
 """
-from bs4 import BeautifulSoup
-import requests, wget, os, sys, time, glob, parfive, re
+import requests, os, sys, time, glob, re
 
 pasta_zip = r"dados-publicos-zip" #local dos arquivos zipados da Receita
 pasta_cnpj = 'dados-publicos'
 
-def requisitos():
+def requisitos(anoMes):
     #se pastas não existirem, cria automaticamente
-    if not os.path.isdir(pasta_cnpj):
-        os.mkdir(pasta_cnpj)
-    if not os.path.isdir(pasta_zip):
-        os.mkdir(pasta_zip)
-        
-    arquivos_existentes = [k for k in glob.glob(pasta_cnpj +'/*.*') if not k.endswith('.txt')] + list(glob.glob(pasta_zip + '/*.zip'))
-    if len(arquivos_existentes):
-        #eg.msgbox("Este programa baixa arquivos csv.zip de dados abertos da Receita Federal e converte para uso na RedeCNPJ aplicativo.\nIMPORTANTE: Para prosseguir, as pastas 'dados-publicos' e 'dados-publicos-zip', devem estar vazias, senão poderá haver inconsistências (juntar dados de meses distintos).\n",'Criar Bases RedeCNPJ')
-        #if eg.ynbox('Deseja apagar os arquivos das pastas ' + pasta_cnpj + ' e ' + pasta_zip + '?\nNÃO SERÁ POSSÍVEL REVERTER!!!!\n' + '\n'.join(arquivos_existentes) + '\nATENÇÃO: SE FOR EXECUTAR APENAS ALGUMA PARTE DO PROGRAMA, NÃO SELECIONE ESTA OPÇÃO, APAGUE MANUALMENTE.','Criar Bases RedeCNPJ', ['SIM-APAGAR', 'NÃO']):
-        r = input('Deseja apagar os arquivos das pastas ' + pasta_cnpj + ' e ' + pasta_zip + '?\n' + '\n'.join(arquivos_existentes) + '\nATENÇÃO: SE FOR EXECUTAR APENAS ALGUMA PARTE DO PROGRAMA, NÃO SELECIONE ESTA OPÇÃO, APAGUE MANUALMENTE. \nNÃO SERÁ POSSÍVEL REVERTER!!!!\nDeseja prosseguir e apagar os arquivos (y/n)??')
-        if r and r.upper()=='Y':
-            for arq in arquivos_existentes:
-                    print('Apagando arquivo ' + arq)
-                    os.remove(arq)
-        else:
-            print('Parando... Apague os arquivos ' + pasta_cnpj + ' e ' + pasta_zip +' e tente novamente')
-            input('Pressione Enter')
-            sys.exit(1)
+    os.makedirs(pasta_cnpj, exist_ok=True)
+    os.makedirs(pasta_zip, exist_ok=True)
+    marcador = os.path.join(pasta_zip, '.referencia')
+    anterior = open(marcador).read().strip() if os.path.exists(marcador) else None
+    zips = glob.glob(os.path.join(pasta_zip, '*.zip')) + glob.glob(os.path.join(pasta_zip, '*.part'))
+    if zips and anterior is not None and anterior != anoMes:
+        #zips de outro mês (ou de origem desconhecida) não podem ser misturados com os novos
+        print(f'Apagando {len(zips)} arquivos da pasta {pasta_zip} (referência anterior: {anterior}, atual: {anoMes})')
+        for arq in zips:
+            os.remove(arq)
+    with open(marcador, 'w') as f:
+        f.write(anoMes)
 #.def requisitos
 
 def consulta_base_webdap(share_token="gn672Ad4CF8N6TK", base_url="https://arquivos.receitafederal.gov.br/public.php/webdav/Dados/Cadastros/CNPJ"):
@@ -58,12 +51,15 @@ def consulta_base_webdap(share_token="gn672Ad4CF8N6TK", base_url="https://arquiv
     root = ElementTree.fromstring(response.content)
     
     files = []
+    tamanhos = {}
     for response in root.findall("d:response", DAV_NS):
         href = response.find("d:href", DAV_NS).text
         # Extract .zip filenames from href
         match = re.search(r"/([^/]+\.zip)$", href, re.IGNORECASE)
         if match:
             files.append(match.group(1))
+            tam = response.find(".//d:getcontentlength", DAV_NS)
+            tamanhos[match.group(1)] = int(tam.text) if tam is not None and tam.text else None
 
     #urlBaseArquivosDoMes = f'https://arquivos.receitafederal.gov.br/public.php/dav/files/{share_token}/{ultimoAnoMes}/' #para baixar usando requests sem webdav
     #urlPaginaDownloadMeses = f'https://arquivos.receitafederal.gov.br/index.php/s/{share_token}'
@@ -73,7 +69,7 @@ def consulta_base_webdap(share_token="gn672Ad4CF8N6TK", base_url="https://arquiv
     urlPaginaDownloadMeses = f'https://arquivos.receitafederal.gov.br/index.php/s/{share_token}?dir=/Dados/Cadastros/CNPJ'
     
     #return {'ultimoAnoMes':ultimoAnoMes, 'arquivos':files}
-    return {'anoMes':ultimoAnoMes, 'urlBaseArquivosDoMes':urlBaseArquivosDoMes, 'arquivos':files, 'urlPaginaDownloadMeses':urlPaginaDownloadMeses}
+    return {'anoMes':ultimoAnoMes, 'urlBaseArquivosDoMes':urlBaseArquivosDoMes, 'arquivos':files, 'tamanhos':tamanhos, 'urlPaginaDownloadMeses':urlPaginaDownloadMeses}
 #.def consulta_base_webdap
 
 def consulta_base(bwebdap=True):
@@ -102,7 +98,7 @@ if not parametrosSite:
 ultima_referencia = parametrosSite['anoMes']
 urlBaseArquivosDoMes = parametrosSite['urlBaseArquivosDoMes']
 print('Última base disponível:', ultima_referencia)
-requisitos()
+requisitos(ultima_referencia)
 
 lista = [urlBaseArquivosDoMes+arq for arq in parametrosSite['arquivos']]
 
@@ -117,13 +113,46 @@ if __name__ == '__main__':
         
 print(time.asctime(), 'Início do Download dos arquivos...')
 
-if True: #baixa usando parfive, download em paralelo
-    #downloader = parfive.Downloader()
-    headers = {'User-Agent': "Mozilla/5.0 (Windows NT 10.0; Windows; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.5060.114 Safari/537.36", "Accept": "*/*"}
-    downloader = parfive.Downloader(max_conn=5, max_splits=1, config=parfive.SessionConfig(headers=headers))
-    for url in lista:
-        downloader.enqueue_file(url, path=pasta_zip, filename=os.path.split(url)[1])
-    downloader.download()
+def baixa_arquivo(url, destino, tamanho, tentativas=6):
+    """Baixa para destino+'.part' e só renomeia se o tamanho bater com o da listagem."""
+    headers = {'User-Agent': "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.5060.114 Safari/537.36", "Accept": "*/*"}
+    for tentativa in range(1, tentativas+1):
+        try:
+            with requests.get(url, headers=headers, stream=True, timeout=(15, 60)) as r:
+                r.raise_for_status()
+                total = int(r.headers.get('content-length') or tamanho or 0)
+                baixado = 0
+                with open(destino + '.part', 'wb') as f:
+                    for pedaco in r.iter_content(1 << 20):
+                        f.write(pedaco)
+                        baixado += len(pedaco)
+                        print(f"\r  {os.path.basename(destino)}: {baixado>>20}/{total>>20} MB", end='', flush=True)
+            if tamanho and baixado != tamanho:
+                raise IOError(f'tamanho {baixado} != esperado {tamanho}')
+            os.replace(destino + '.part', destino)
+            print(' ok')
+            return True
+        except Exception as e:
+            espera = 5 * tentativa
+            print(f'\n  falha ({type(e).__name__}: {e}); tentativa {tentativa}/{tentativas}, aguardando {espera}s')
+            time.sleep(espera)
+    return False
+
+falhas = []
+for k, url in enumerate(lista, 1):
+    nome = os.path.split(url)[1]
+    destino = os.path.join(pasta_zip, nome)
+    tamanho = parametrosSite['tamanhos'].get(nome)
+    if os.path.exists(destino) and (not tamanho or os.path.getsize(destino) == tamanho):
+        print(f'[{k}/{len(lista)}] {nome}: já baixado, pulando')
+        continue
+    print(f'[{k}/{len(lista)}] {nome}')
+    if not baixa_arquivo(url, destino, tamanho):
+        falhas.append(nome)
+if falhas:
+    print('\nNÃO BAIXOU:', ', '.join(falhas), '\nRode o script novamente: os arquivos já completos são pulados.')
+    sys.exit(1)
+
 # else: #baixar sequencial, rotina antiga
 #     def bar_progress(current, total, width=80):
 #         if total>=2**20:

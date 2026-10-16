@@ -11,3 +11,4 @@ pymysql
 lxml
 pyarrow
 
+psycopg[binary]

@@ -1,0 +1,8 @@
+.env
+__pycache__/
+dados-publicos-zip/*.zip
+dados-publicos/*
+!dados-publicos/*.txt
+.venv/
+*.log
+dados-publicos-zip/.referencia
